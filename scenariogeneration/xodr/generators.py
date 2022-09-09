@@ -326,7 +326,7 @@ def create_road(
     return road
 
 
-def create_straight_road(road_id, length=100, junction=-1, n_lanes=1, lane_offset=3):
+def create_straight_road(road_id, length=100, junction=-1, right_lanes=1, left_lanes=1, lane_offset=3):
     """creates a standard straight road with two lanes
 
     Parameters
@@ -339,7 +339,10 @@ def create_straight_road(road_id, length=100, junction=-1, n_lanes=1, lane_offse
         junction (int): if the road belongs to a junction or not
             default: -1
 
-        n_lanes (int): number of lanes
+        right_lanes (int): number of right lanes
+            default: 1
+            
+        left_lanes (int): number of left lanes
             default: 1
 
         lane_offset (int): width of the road
@@ -358,9 +361,10 @@ def create_straight_road(road_id, length=100, junction=-1, n_lanes=1, lane_offse
 
     # create lanesections
     lanesec1 = LaneSection(0, standard_lane())
-    for i in range(1, n_lanes + 1, 1):
-        lanesec1.add_right_lane(standard_lane(lane_offset))
-        lanesec1.add_left_lane(standard_lane(lane_offset))
+    for _ in range(right_lanes):
+       lanesec1.add_right_lane(standard_lane(lane_offset))
+    for _ in range(left_lanes):
+       lanesec1.add_left_lane(standard_lane(lane_offset))
 
     # create lanes
     lanes1 = Lanes()
@@ -377,10 +381,11 @@ def create_cloth_arc_cloth(
     r_id,
     junction=1,
     cloth_start=STD_START_CLOTH,
-    n_lanes=1,
+    left_lanes=1,
+    right_lanes=1,
     lane_offset=3,
 ):
-    """creates a curved Road  with a Spiral - Arc - Spiral, and two lanes
+    """creates a curved Road  with a Spiral - Arc - Spiral, and lanes
 
     Parameters
     ----------
@@ -397,7 +402,10 @@ def create_cloth_arc_cloth(
 
         cloth_start (float): staring curvature of clothoids
 
-        n_lanes (int): number of lanes
+        right_lanes (int): number of right lanes
+            default: 1
+            
+        left_lanes (int): number of left lanes
             default: 1
 
         lane_offset (int): width of the road
@@ -428,9 +436,10 @@ def create_cloth_arc_cloth(
 
     # create lanes
     lsec = LaneSection(0, standard_lane())
-    for i in range(1, n_lanes + 1, 1):
-        lsec.add_right_lane(standard_lane(lane_offset))
-        lsec.add_left_lane(standard_lane(lane_offset))
+    for _ in range(right_lanes):
+       lsec.add_right_lane(standard_lane(lane_offset))
+    for _ in range(left_lanes):
+       lsec.add_left_lane(standard_lane(lane_offset))
     lanes = Lanes()
     lanes.add_lanesection(lsec)
 
@@ -568,13 +577,15 @@ def get_lanes_offset(road1, road2, contactpoint):
 
 
 def create_junction_roads_standalone(
-    angles,
+    angles_in,
+    angles_out,
     r,
     junction=1,
     spiral_part=1 / 3,
     arc_part=1 / 3,
     startnum=100,
-    n_lanes=1,
+    right_lanes=1,
+    left_lanes=1,
     lane_width=3,
 ):
     """creates all needed roads for some simple junctions, the curved parts of the junction are created as a spiral-arc-spiral combo
@@ -586,8 +597,11 @@ def create_junction_roads_standalone(
     Parameters
     ----------
 
-        angles (list of float): the angles from where the roads should be coming in (see description for what is supported),
+        angles_in (list of float): the angles from where the roads should be coming in (see description for what is supported),
                                 to be defined in mathimatically positive order, beginning with the first incoming road
+
+        angles_out (list of float): the angles from where the roads should be coming out (see description for what is supported),
+                                 to be defined in mathimatically positive order, beginning with the first incoming road
 
         r (float): the radius of the arcs in the junction (will determine the size of the junction)
 
@@ -602,7 +616,9 @@ def create_junction_roads_standalone(
 
         startnum (int): start number of the roads in the junctions (will increase with 1 for each road)
 
-        n_lanes (int): the number of lanes in the junction
+        right_lanes (int): the number of right lanes in the junction
+
+        left_lanes (int): the number of left lanes in the junction
 
         lane_width (float): the lane width of the lanes in the junction
     Returns
@@ -629,43 +645,52 @@ def create_junction_roads_standalone(
 
     junction_roads = []
 
-    for i in range(len(angles) - 1):
+    for i in range(len(angles_in)):
+        for j in range(len(angles_out)):
+            if angles_in[i] != angles_out[j]:
+                # check angle needed for junction
+                if angles_in[i] < angles_out[j]:
+                    an = np.sign(angles_out[j] - angles_in[i] -  np.pi)
+                    an1 = angles_out[j] - angles_in[i] - np.pi
+                else:
+                    an = np.sign(angles_out[j] + 2 * np.pi - angles_in[i] - np.pi)
+                    an1 = angles_out[j] + 2 * np.pi - angles_in[i] - np.pi
+                angle_arc = an1 * arc_part
 
-        for j in range(1 + i, len(angles)):
-            # check angle needed for junction
-            an = np.sign(angles[j] - angles[i] - np.pi)
-            an1 = angles[j] - angles[i] - np.pi
-            angle_arc = an1 * arc_part
+                angle_cloth = an1 * spiral_part
 
-            angle_cloth = an1 * spiral_part
+                #adjust angle if multiple of pi
+                if an1 > np.pi:
+                    an1 -= 2 * np.pi
+                 
+                if an1 < -np.pi:
+                    an1 += 2 * np.pi
 
-            # adjust angle if multiple of pi
-            if an1 > np.pi:
-                an1 = -(2 * np.pi - an1)
+                # create road, either straight or curved
+                if an == 0:
+                    tmp_junc = create_straight_road(
+                        startnum,
+                        length=linelength,
+                        junction=junction,
+                        left_lanes=left_lanes,
+                        right_lanes=right_lanes,
+                        lane_offset=lane_width,
+                    )
+                else:
+                    tmp_junc = create_cloth_arc_cloth(
+                        1 / r,
+                        angle_arc,
+                        angle_cloth,
+                        startnum,
+                        junction,
+                        left_lanes=left_lanes,
+                        right_lanes=right_lanes,
+                        lane_offset=lane_width,
+                    )
 
-            # create road, either straight or curved
-            if an == 0:
-                tmp_junc = create_straight_road(
-                    startnum,
-                    length=linelength,
-                    junction=junction,
-                    n_lanes=n_lanes,
-                    lane_offset=lane_width,
-                )
-            else:
-                tmp_junc = create_cloth_arc_cloth(
-                    1 / r,
-                    angle_arc,
-                    angle_cloth,
-                    startnum,
-                    junction,
-                    n_lanes=n_lanes,
-                    lane_offset=lane_width,
-                )
-
-            # add predecessor and successor
-            startnum += 1
-            junction_roads.append(tmp_junc)
+                # add predecessor and successor
+                startnum += 1
+                junction_roads.append(tmp_junc)
 
     return junction_roads
 
